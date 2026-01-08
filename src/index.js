@@ -111,25 +111,27 @@ function App() {
 	const [isSaving, setIsSaving] = useState(false);
 	const [isSavingAll, setIsSavingAll] = useState(false);
 
-	const { records, editedRecords, isResolving } = useSelect((select) => {
-		const store = select("core");
-		const recordsResult = store.getEntityRecords("postType", "book", query);
-		const editedRecordsResult = recordsResult?.map((record) => {
-			return store.getEditedEntityRecord("postType", "book", record.id);
-		});
+	const { records, editedRecords, isDirty, isResolving } = useSelect(
+		(select) => {
+			const store = select("core");
+			const recordsResult = store.getEntityRecords("postType", "book", query);
+			const editedRecordsResult = recordsResult?.map((record) => {
+				return store.getEditedEntityRecord("postType", "book", record.id);
+			});
 
-		return {
-			records: recordsResult,
-			editedRecords: editedRecordsResult,
-			isResolving: store.isResolving("getEntityRecords", [
-				"postType",
-				"book",
-				query,
-			]),
-		};
-	}, []);
-
-	console.log(editedRecords);
+			return {
+				records: recordsResult,
+				editedRecords: editedRecordsResult,
+				isDirty: store.__experimentalGetDirtyEntityRecords().length > 0,
+				isResolving: store.isResolving("getEntityRecords", [
+					"postType",
+					"book",
+					query,
+				]),
+			};
+		},
+		[],
+	);
 
 	const selectedRecord = useSelect(
 		(select) => {
@@ -245,7 +247,7 @@ function App() {
 	};
 
 	const handleSaveAll = async () => {
-		if (editedRecords.length === 0) {
+		if (!isDirty) {
 			return;
 		}
 
@@ -261,7 +263,7 @@ function App() {
 				);
 			} else {
 				await Promise.all(
-					editedRecords.map(({ id }) => {
+					editedIds.map((id) => {
 						const store = select("core");
 						const record = store.getEditedEntityRecord
 							? store.getEditedEntityRecord("postType", "book", id)
@@ -311,7 +313,10 @@ function App() {
 			);
 			setSelectedId(null);
 			setNotice(
-				__("Deleted all books from the database.", "missing-create-entity-record"),
+				__(
+					"Deleted all books from the database.",
+					"missing-create-entity-record",
+				),
 			);
 		} catch (error) {
 			setNotice(error.message);
@@ -386,7 +391,7 @@ function App() {
 						<Button
 							variant="secondary"
 							onClick={handleSaveAll}
-							disabled={isSavingAll || editedRecords?.length === 0}
+							disabled={isSavingAll || !isDirty}
 						>
 							{__("Save all changes", "missing-create-entity-record")}
 						</Button>
