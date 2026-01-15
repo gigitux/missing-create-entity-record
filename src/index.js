@@ -1,5 +1,5 @@
 import { __ } from "@wordpress/i18n";
-import { render, useMemo, useState } from "@wordpress/element";
+import { render, useEffect, useMemo, useState } from "@wordpress/element";
 import { useSelect, dispatch, select } from "@wordpress/data";
 import {
 	Button,
@@ -15,8 +15,20 @@ import {
 	DataViews,
 	filterSortAndPaginate,
 } from "@wordpress/dataviews";
-
+import { useDispatch } from "@wordpress/data";
+import { store as coreStore } from "@wordpress/core-data";
 import "./style.scss";
+
+/**
+ * WordPress dependencies
+ */
+import { __dangerousOptInToUnstableAPIsOnlyForCoreModules } from "@wordpress/private-apis";
+
+export const { lock, unlock } =
+	__dangerousOptInToUnstableAPIsOnlyForCoreModules(
+		"I acknowledge private features are not for use in themes or plugins and doing so will break in the next version of WordPress.",
+		"@wordpress/editor",
+	);
 
 const DEFAULT_VIEW = {
 	type: "table",
@@ -113,11 +125,19 @@ function App() {
 
 	const { records, editedRecords, isDirty, isResolving } = useSelect(
 		(select) => {
-			const store = select("core");
-			const recordsResult = store.getEntityRecords("postType", "book", query);
-			const editedRecordsResult = recordsResult?.map((record) => {
-				return store.getEditedEntityRecord("postType", "book", record.id);
-			});
+			const { getEntityRecords } = select(coreStore);
+			const { getStagedEntityRecords } = unlock(select(coreStore));
+			const recordsResult = getEntityRecords("postType", "book", query) ?? [];
+			const draftRecords = getStagedEntityRecords("postType", "book");
+			const editedRecordsResult = [...draftRecords, ...recordsResult]?.map(
+				(record) => {
+					return select(coreStore).getEditedEntityRecord(
+						"postType",
+						"book",
+						record.id,
+					);
+				},
+			);
 
 			return {
 				records: recordsResult,
@@ -150,6 +170,24 @@ function App() {
 		[selectedId],
 	);
 
+	const isSelectedResolving = useSelect(
+		(select) => {
+			if (!selectedId) {
+				return false;
+			}
+			const store = select(coreStore);
+			if (!store.isResolving) {
+				return false;
+			}
+			return store.isResolving("getEntityRecord", [
+				"postType",
+				"book",
+				selectedId,
+			]);
+		},
+		[selectedId],
+	);
+
 	const books = useMemo(() => {
 		const sourceRecords = editedRecords || [];
 		return sourceRecords?.map(mapRecordToBook);
@@ -159,33 +197,33 @@ function App() {
 		return filterSortAndPaginate(books, view, BOOK_FIELDS);
 	}, [books, view]);
 
-	const draft = useMemo(() => {
-		return selectedRecord ? mapRecordToBook(selectedRecord) : null;
-	}, [selectedRecord]);
+	const [draftSnapshot, setDraftSnapshot] = useState(null);
+	useEffect(() => {
+		if (selectedRecord) {
+			setDraftSnapshot(mapRecordToBook(selectedRecord));
+			return;
+		}
+		if (!selectedId) {
+			setDraftSnapshot(null);
+			return;
+		}
+		if (!isSelectedResolving) {
+			setDraftSnapshot(null);
+		}
+	}, [selectedRecord, selectedId, isSelectedResolving]);
+
+	const draft = draftSnapshot;
+
+	const { createStagedEntityRecord } = unlock(useDispatch(coreStore));
 
 	const createLocalDraft = () => {
 		setNotice("");
-		const coreDispatch = dispatch("core");
-		if (!coreDispatch?.createEntityRecord) {
-			setNotice(
-				__(
-					"createEntityRecord is missing, so DataForm cannot create a local-only book draft. Any draft flow requires saving to the database first.",
-					"missing-create-entity-record",
-				),
-			);
-			return;
-		}
 
-		const draftRecord = coreDispatch.createEntityRecord("postType", "book", {
+		createStagedEntityRecord("postType", "book", {
 			title: "New book",
 			status: "draft",
 			meta: { book_author: "" },
 		});
-
-		const nextDraft = mapRecordToBook(draftRecord);
-		if (nextDraft.id) {
-			setSelectedId(nextDraft.id);
-		}
 	};
 
 	const saveDraftNow = async () => {

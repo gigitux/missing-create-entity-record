@@ -22,7 +22,8 @@
 		"@wordpress/data": "latest",
 		"@wordpress/dataviews": "latest",
 		"@wordpress/element": "latest",
-		"@wordpress/i18n": "latest"
+		"@wordpress/i18n": "latest",
+		"@wordpress/private-apis": "latest"
 	},
 	"devDependencies": {
 		"@wordpress/env": "latest",
